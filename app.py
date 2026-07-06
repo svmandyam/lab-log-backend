@@ -178,15 +178,28 @@ def write_to_notion(tags, image_files=None):
 @app.route("/log", methods=["POST"])
 def log_entry():
     """
-    Tasker should POST here as multipart form-data:
-      - "file": the recorded audio (required)
-      - "images": zero or more photo files (optional, repeated field name)
-    """
-    if "file" not in request.files:
-        return jsonify({"error": "no audio file uploaded"}), 400
+    Accepts audio two different ways, since Tasker's built-in HTTP Request
+    action does NOT send proper multipart/form-data when you use its
+    "File To Send" field -- it just PUTs the raw file bytes as the plain
+    request body. So:
 
-    audio_file = request.files["file"]
-    audio_bytes = audio_file.read()
+      - Preferred: multipart form-data with field name "file" (what curl -F
+        and most other HTTP clients send)
+      - Fallback: raw bytes in the request body with no file field at all
+        (what Tasker's "File To Send" actually does)
+
+    Optional photos ("images" field, multipart only) are still supported
+    when sent that way.
+    """
+    if "file" in request.files:
+        audio_file = request.files["file"]
+        audio_bytes = audio_file.read()
+        filename = audio_file.filename or "voice_log.mp4"
+    elif request.data:
+        audio_bytes = request.data
+        filename = "voice_log.mp4"
+    else:
+        return jsonify({"error": "no audio file uploaded"}), 400
 
     image_files = [
         (f.filename or f"photo_{i}.jpg", f.read())
@@ -195,7 +208,7 @@ def log_entry():
 
     try:
         config = load_tagging_config()
-        transcript = transcribe_audio(audio_bytes, audio_file.filename or "audio.m4a")
+        transcript = transcribe_audio(audio_bytes, filename)
         tags = tag_transcript(transcript, config)
         notion_result = write_to_notion(tags, image_files=image_files or None)
     except Exception as e:
