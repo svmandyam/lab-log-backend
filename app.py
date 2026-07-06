@@ -29,6 +29,7 @@ Run locally for testing:
 import os
 import json
 import requests
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -149,6 +150,9 @@ def write_to_notion(tags, image_files=None):
                 },
             })
 
+    # Timestamp of capture, not of whenever the pipeline happens to finish --
+    # taken at the top of the request in log_entry() and passed in, since
+    # transcription/tagging can add a few seconds of lag before we get here.
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
@@ -157,6 +161,7 @@ def write_to_notion(tags, image_files=None):
             "Equipment": {"multi_select": [{"name": e} for e in tags["equipment"]]},
             "Status": {"select": {"name": tags["status"]}},
             "Project": {"rich_text": [{"text": {"content": tags["project"]}}]},
+            "Date": {"date": {"start": tags["captured_at"]}},
         },
         "children": children,
     }
@@ -201,6 +206,9 @@ def log_entry():
     else:
         return jsonify({"error": "no audio file uploaded"}), 400
 
+    # Capture time-of-recording now, before transcription/tagging add lag
+    captured_at = datetime.now(timezone.utc).isoformat()
+
     image_files = [
         (f.filename or f"photo_{i}.jpg", f.read())
         for i, f in enumerate(request.files.getlist("images"))
@@ -210,6 +218,7 @@ def log_entry():
         config = load_tagging_config()
         transcript = transcribe_audio(audio_bytes, filename)
         tags = tag_transcript(transcript, config)
+        tags["captured_at"] = captured_at
         notion_result = write_to_notion(tags, image_files=image_files or None)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -221,6 +230,7 @@ def log_entry():
         "type": tags["type"],
         "equipment": tags["equipment"],
         "images_attached": len(image_files),
+        "captured_at": captured_at,
         "notion_url": notion_result.get("url"),
     })
 
