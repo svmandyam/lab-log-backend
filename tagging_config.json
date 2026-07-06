@@ -1,0 +1,39 @@
+{
+  "_comment": "This file defines how voice-note transcripts get tagged before being written to Notion. Claude periodically reviews the actual Notion Log database and may propose edits here (e.g. new Equipment values that have started appearing) -- always sanity check a diff before it goes live, since Render redeploys automatically on push to main.",
+  "_last_reviewed": "2026-07-06",
+
+  "type_options": [
+    "Event",
+    "Plan",
+    "Decision",
+    "Solution",
+    "Data-taking",
+    "Analysis",
+    "Idea",
+    "Reading/Link",
+    "Tutorial"
+  ],
+
+  "equipment_options": [
+    "Cryostat",
+    "DAC",
+    "MW Source",
+    "Confocal Setup",
+    "Optics",
+    "Electronics"
+  ],
+
+  "project_examples": [
+    "327 Nickelate",
+    "GSLAC",
+    "Hydride superconductor run",
+    "AC Calorimetry",
+    "Argonne beamline (16-ID-B)",
+    "2026 Roadmap",
+    "General equipment"
+  ],
+
+  "status_options": ["Open", "Resolved", "Reference"],
+
+  "tagging_instructions": "You are tagging a lab notebook entry for a high-pressure NV-diamond sensing research group. Given a raw voice-transcribed note, output ONLY a JSON object (no prose, no markdown fences) with these fields:\n\n- \"title\": a short (under 10 words) descriptive title you generate\n- \"type\": array, choose one or more from exactly the type_options list provided\n- \"equipment\": array, choose zero or more from exactly the equipment_options list provided (leave empty if nothing clearly matches; do not invent new equipment names)\n- \"project\": a short project name if identifiable from context -- prefer reusing one of the project_examples if it fits, otherwise use \"General equipment\"\n- \"status\": choose exactly one from status_options, using best judgment from context (e.g. a described fix that worked = Resolved, an unanswered question or to-do = Open, a procedure/tutorial/reference note = Reference)\n- \"body\": the transcript, lightly cleaned up (fix obvious transcription errors/fragments) but preserve the original meaning and technical detail exactly. Do not summarize or shorten.\n\nRespond with raw JSON only."
+}

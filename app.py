@@ -1,95 +1,94 @@
 """
-Voice-to-Notion lab log pipeline.
+Voice-to-Notion lab log pipeline (OpenAI-only version).
 
 Flow:
   Tasker (phone) --audio file--> this server
     -> OpenAI Whisper: audio -> transcript
-    -> Claude API: transcript -> structured tags (Type/Equipment/Project/Status/Title)
+    -> OpenAI GPT (JSON mode): transcript -> structured tags
+       (rules loaded from tagging_config.json, not hardcoded)
     -> Notion API: create tagged page in the Log database
 
-Required environment variables (set these, never hardcode keys in this file):
+Required environment variables:
   OPENAI_API_KEY      - from platform.openai.com
-  ANTHROPIC_API_KEY   - from console.anthropic.com
-  NOTION_TOKEN        - your internal integration secret (ntn_...)
-  NOTION_DATABASE_ID  - e.g. e13261f51edf4020a9893d27c8fa3524 (your Log database)
+  NOTION_TOKEN         - your internal integration secret (ntn_...)
+  NOTION_DATABASE_ID   - e.g. e13261f51edf4020a9893d27c8fa3524 (your Log database)
+
+tagging_config.json lives alongside this file in the repo. Claude can review
+your actual Notion Log database periodically and propose edits to that file
+(e.g. new Equipment values worth adding) -- always review the diff before
+pushing, since Render redeploys automatically on push to main.
 
 Run locally for testing:
-  pip install flask requests anthropic --break-system-packages
+  pip install flask requests --break-system-packages
   export OPENAI_API_KEY=...
-  export ANTHROPIC_API_KEY=...
   export NOTION_TOKEN=...
   export NOTION_DATABASE_ID=...
   python app.py
-
-Then point Tasker's HTTP Request at:  http://<your-server-ip>:5000/log
 """
 
 import os
 import json
 import requests
 from flask import Flask, request, jsonify
-from anthropic import Anthropic
 
 app = Flask(__name__)
 
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 NOTION_DATABASE_ID = os.environ["NOTION_DATABASE_ID"]
 
-anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "tagging_config.json")
 
-# Keep this in sync with your actual Notion schema.
-TYPE_OPTIONS = ["Event", "Plan", "Decision", "Solution", "Data-taking",
-                 "Analysis", "Idea", "Reading/Link", "Tutorial"]
-EQUIPMENT_OPTIONS = ["Cryostat", "DAC", "MW Source", "Confocal Setup",
-                      "Optics", "Electronics"]
 
-TAGGING_SYSTEM_PROMPT = f"""You are tagging a lab notebook entry for a high-pressure NV-diamond
-sensing research group. Given a raw voice-transcribed note, output ONLY a JSON object
-(no prose, no markdown fences) with these fields:
-
-- "title": a short (under 10 words) descriptive title you generate
-- "type": array, choose one or more from exactly: {TYPE_OPTIONS}
-- "equipment": array, choose zero or more from exactly: {EQUIPMENT_OPTIONS}
-  (leave empty if nothing clearly matches; do not invent new equipment names)
-- "project": a short project name if identifiable from context (e.g. "Hydride superconductor run",
-  "327 Nickelate", "GSLAC", "AC Calorimetry"), otherwise "General equipment"
-- "status": choose exactly one of: "Open", "Resolved", "Reference" -- use your best
-  judgment from context (e.g. a described fix that worked = "Resolved", an unanswered
-  question or to-do = "Open", a procedure/tutorial/reference note = "Reference")
-- "body": the transcript, lightly cleaned up (fix obvious transcription errors/fragments)
-  but preserve the original meaning and technical detail exactly. Do not summarize or shorten.
-
-Respond with raw JSON only."""
+def load_tagging_config():
+    """Reload the config on every request -- cheap, and means a git pull/redeploy
+    picks up changes immediately with no server restart logic needed."""
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
 
 
 def transcribe_audio(audio_bytes, filename):
-    """Send audio to OpenAI's Whisper transcription endpoint."""
+    """Send audio to OpenAI's gpt-4o-transcribe endpoint (better WER on technical
+    jargon than legacy whisper-1, same price, same endpoint/response shape)."""
     resp = requests.post(
         "https://api.openai.com/v1/audio/transcriptions",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
         files={"file": (filename, audio_bytes)},
-        data={"model": "whisper-1"},
+        data={"model": "gpt-4o-transcribe"},
         timeout=60,
     )
     resp.raise_for_status()
     return resp.json()["text"]
 
 
-def tag_transcript(transcript):
-    """Send transcript to Claude for structured tagging."""
-    message = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1000,
-        system=TAGGING_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": transcript}],
+def tag_transcript(transcript, config):
+    """Send transcript to GPT (JSON mode) for structured tagging."""
+    system_prompt = (
+        config["tagging_instructions"]
+        + "\n\ntype_options: " + json.dumps(config["type_options"])
+        + "\nequipment_options: " + json.dumps(config["equipment_options"])
+        + "\nproject_examples: " + json.dumps(config["project_examples"])
+        + "\nstatus_options: " + json.dumps(config["status_options"])
     )
-    raw = message.content[0].text.strip()
-    # Defensive: strip accidental code fences if the model adds them
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+
+    resp = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "gpt-4o-mini",
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": transcript},
+            ],
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    raw = resp.json()["choices"][0]["message"]["content"]
     return json.loads(raw)
 
 
@@ -98,9 +97,7 @@ def upload_image_to_notion(image_bytes, filename):
     Two-step Notion File Upload API:
       1. Create a file_upload object
       2. Send the actual bytes to it
-    Returns the file_upload id, which can then be referenced in a page's
-    children blocks without needing any public hosting (no GitHub bridge needed
-    for live capture -- that was only ever a workaround for the PDF migration).
+    No public hosting (e.g. GitHub bridge) needed for live capture.
     """
     notion_headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -130,8 +127,7 @@ def write_to_notion(tags, image_files=None):
     """
     Create a tagged page in the Notion Log database.
     image_files: optional list of (filename, bytes) tuples for photos taken
-    alongside the voice note. Each becomes an inline image block after the
-    caption text.
+    alongside the voice note.
     """
     children = [
         {
@@ -184,9 +180,7 @@ def log_entry():
     """
     Tasker should POST here as multipart form-data:
       - "file": the recorded audio (required)
-      - "images": zero or more photo files (optional, same field name repeated
-        for multiple files -- this is what the future photo-capture routine
-        will add; the text-only routine simply omits this field)
+      - "images": zero or more photo files (optional, repeated field name)
     """
     if "file" not in request.files:
         return jsonify({"error": "no audio file uploaded"}), 400
@@ -200,8 +194,9 @@ def log_entry():
     ]
 
     try:
+        config = load_tagging_config()
         transcript = transcribe_audio(audio_bytes, audio_file.filename or "audio.m4a")
-        tags = tag_transcript(transcript)
+        tags = tag_transcript(transcript, config)
         notion_result = write_to_notion(tags, image_files=image_files or None)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
