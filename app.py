@@ -160,7 +160,7 @@ def write_to_notion(tags, image_files=None):
             "Type": {"multi_select": [{"name": t} for t in tags["type"]]},
             "Equipment": {"multi_select": [{"name": e} for e in tags["equipment"]]},
             "Status": {"select": {"name": tags["status"]}},
-            "Project": {"rich_text": [{"text": {"content": tags["project"]}}]},
+            "Project": {"multi_select": [{"name": p} for p in tags["project"]]},
             "Date": {"date": {"start": tags["captured_at"]}},
         },
         "children": children,
