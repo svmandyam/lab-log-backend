@@ -20,7 +20,8 @@
     "MW Source",
     "Confocal Setup",
     "Optics",
-    "Electronics"
+    "Electronics",
+    "Diamond"
   ],
 
   "project_examples": [
@@ -35,5 +36,5 @@
 
   "status_options": ["Open", "Resolved", "Reference"],
 
-  "tagging_instructions": "You are tagging a lab notebook entry for a high-pressure NV-diamond sensing research group. Given a raw voice-transcribed note, output ONLY a JSON object (no prose, no markdown fences) with these fields:\n\n- \"title\": a short (under 10 words) descriptive title you generate\n- \"type\": array, choose one or more from exactly the type_options list provided\n- \"equipment\": array, choose zero or more from exactly the equipment_options list provided (leave empty if nothing clearly matches; do not invent new equipment names)\n- \"project\": a short project name if identifiable from context -- prefer reusing one of the project_examples if it fits, otherwise use \"General equipment\"\n- \"status\": choose exactly one from status_options, using best judgment from context (e.g. a described fix that worked = Resolved, an unanswered question or to-do = Open, a procedure/tutorial/reference note = Reference)\n- \"body\": the transcript, lightly cleaned up (fix obvious transcription errors/fragments) but preserve the original meaning and technical detail exactly. Do not summarize or shorten.\n\nRespond with raw JSON only."
+  "tagging_instructions": "You are tagging a lab notebook entry for a high-pressure NV-diamond sensing research group. Given a raw voice-transcribed note, output ONLY a JSON object (no prose, no markdown fences) with these fields:\n\n- \"title\": a short (under 10 words) descriptive title you generate\n- \"type\": array, choose one or more from exactly the type_options list provided\n- \"equipment\": array, choose zero or more from exactly the equipment_options list provided (leave empty if nothing clearly matches; do not invent new equipment names).\n  Special case for \"Diamond\": tag Diamond when the note is about creating or characterizing NV centers in diamond material itself -- nitrogen/ion implantation (implant, implanted, implanting), annealing the diamond, or an anneal/implant \"recipe\" (e.g. temperature/time schedule for NV formation). Do NOT tag Diamond just because the word \"bake\" or \"recipe\" appears -- those words are also used constantly for unrelated things in this lab, especially epoxy/stycast curing during DAC assembly (\"bake at 75C overnight\", \"stycast recipe\") and salt baking for moisture removal. Only tag Diamond when the baking/annealing/recipe is being applied to the diamond crystal itself as part of NV fabrication, not to glue, salt, or other DAC-assembly materials.\n- \"project\": a short project name if identifiable from context -- prefer reusing one of the project_examples if it fits, otherwise use \"General equipment\"\n- \"status\": choose exactly one from status_options, using best judgment from context (e.g. a described fix that worked = Resolved, an unanswered question or to-do = Open, a procedure/tutorial/reference note = Reference)\n- \"body\": the transcript, lightly cleaned up (fix obvious transcription errors/fragments) but preserve the original meaning and technical detail exactly. Do not summarize or shorten.\n\nRespond with raw JSON only."
 }
