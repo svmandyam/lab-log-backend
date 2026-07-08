@@ -124,6 +124,32 @@ def upload_image_to_notion(image_bytes, filename):
     return file_upload_id
 
 
+def chunk_text(text, size=2000):
+    """Notion enforces a 2000-character limit per rich_text object.
+    Long transcripts must be split across multiple paragraph blocks or the
+    pages API rejects the whole request with a 400. Split on the last
+    newline/space before the limit when possible so blocks break at natural
+    boundaries instead of mid-word."""
+    chunks = []
+    while len(text) > size:
+        cut = text.rfind("\n", 0, size)
+        if cut == -1:
+            cut = text.rfind(" ", 0, size)
+        if cut == -1:
+            cut = size
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip()
+    if text:
+        chunks.append(text)
+    return chunks
+
+
+def clean_option(name):
+    """Notion disallows commas inside select/multi_select option names --
+    a single comma in a model-generated tag 400s the whole page create."""
+    return name.replace(",", " -").strip()
+
+
 def write_to_notion(tags, image_files=None):
     """
     Create a tagged page in the Notion Log database.
@@ -134,8 +160,9 @@ def write_to_notion(tags, image_files=None):
         {
             "object": "block",
             "type": "paragraph",
-            "paragraph": {"rich_text": [{"text": {"content": tags["body"]}}]},
+            "paragraph": {"rich_text": [{"text": {"content": chunk}}]},
         }
+        for chunk in chunk_text(tags["body"])
     ]
 
     if image_files:
@@ -156,11 +183,11 @@ def write_to_notion(tags, image_files=None):
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
-            "Title": {"title": [{"text": {"content": tags["title"]}}]},
-            "Type": {"multi_select": [{"name": t} for t in tags["type"]]},
-            "Equipment": {"multi_select": [{"name": e} for e in tags["equipment"]]},
-            "Status": {"select": {"name": tags["status"]}},
-            "Project": {"multi_select": [{"name": p} for p in tags["project"]]},
+            "Title": {"title": [{"text": {"content": tags["title"][:2000]}}]},
+            "Type": {"multi_select": [{"name": clean_option(t)} for t in tags["type"]]},
+            "Equipment": {"multi_select": [{"name": clean_option(e)} for e in tags["equipment"]]},
+            "Status": {"select": {"name": clean_option(tags["status"])}},
+            "Project": {"multi_select": [{"name": clean_option(p)} for p in tags["project"]]},
             "Date": {"date": {"start": tags["captured_at"]}},
         },
         "children": children,
@@ -176,7 +203,10 @@ def write_to_notion(tags, image_files=None):
         json=payload,
         timeout=30,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        # Surface Notion's actual complaint -- a bare raise_for_status() hides
+        # the response body, leaving only an opaque "400 Bad Request" upstream.
+        raise Exception(f"Notion API error {resp.status_code}: {resp.text[:500]}")
     return resp.json()
 
 
