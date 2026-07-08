@@ -28,6 +28,7 @@ Run locally for testing:
 
 import os
 import json
+import threading
 import requests
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify
@@ -225,6 +226,28 @@ def write_to_notion(tags, image_files=None):
     return resp.json()
 
 
+def process_log(audio_bytes, filename, image_files, captured_at):
+    """The full pipeline, run in a background thread. The phone has already
+    been answered by the time this runs -- results/errors are reported via
+    Slack, since there is no HTTP response left to attach them to."""
+    try:
+        config = load_tagging_config()
+        transcript = transcribe_audio(audio_bytes, filename)
+        tags = tag_transcript(transcript, config)
+        tags["captured_at"] = captured_at
+        notion_result = write_to_notion(tags, image_files=image_files or None)
+    except Exception as e:
+        notify_slack(f":x: *Lab log FAILED* at {captured_at}\n```{str(e)[:1500]}```")
+        return
+
+    notify_slack(
+        f":white_check_mark: *Lab log saved:* {tags['title']}\n"
+        f"Type: {', '.join(tags['type'])} | Status: {tags['status']}"
+        + (f" | :camera: {len(image_files)}" if image_files else "")
+        + (f"\n{notion_result.get('url')}" if notion_result.get("url") else "")
+    )
+
+
 @app.route("/log", methods=["POST"])
 def log_entry():
     """
@@ -240,6 +263,12 @@ def log_entry():
 
     Optional photos ("images" field, multipart only) are still supported
     when sent that way.
+
+    ASYNC: responds 202 immediately after receiving the bytes, then runs
+    transcription/tagging/Notion in a background thread. Tasker's HTTP
+    timeout caps at 60s, which Render cold-start + a long memo can exceed --
+    so the phone must never wait on the pipeline. Success/failure is
+    reported via Slack instead of the HTTP response.
     """
     if "file" in request.files:
         audio_file = request.files["file"]
@@ -254,38 +283,25 @@ def log_entry():
     # Capture time-of-recording now, before transcription/tagging add lag
     captured_at = datetime.now(timezone.utc).isoformat()
 
+    # Read image bytes NOW, before returning -- request context (and its
+    # file handles) dies as soon as we respond, so nothing in the background
+    # thread may touch `request`.
     image_files = [
         (f.filename or f"photo_{i}.jpg", f.read())
         for i, f in enumerate(request.files.getlist("images"))
     ]
 
-    try:
-        config = load_tagging_config()
-        transcript = transcribe_audio(audio_bytes, filename)
-        tags = tag_transcript(transcript, config)
-        tags["captured_at"] = captured_at
-        notion_result = write_to_notion(tags, image_files=image_files or None)
-    except Exception as e:
-        notify_slack(f":x: *Lab log FAILED* at {captured_at}\n```{str(e)[:1500]}```")
-        return jsonify({"error": str(e)}), 500
-
-    notify_slack(
-        f":white_check_mark: *Lab log saved:* {tags['title']}\n"
-        f"Type: {', '.join(tags['type'])} | Status: {tags['status']}"
-        + (f" | :camera: {len(image_files)}" if image_files else "")
-        + (f"\n{notion_result.get('url')}" if notion_result.get("url") else "")
-    )
+    threading.Thread(
+        target=process_log,
+        args=(audio_bytes, filename, image_files, captured_at),
+        daemon=True,
+    ).start()
 
     return jsonify({
-        "status": "ok",
-        "transcript": transcript,
-        "title": tags["title"],
-        "type": tags["type"],
-        "equipment": tags["equipment"],
-        "images_attached": len(image_files),
+        "status": "processing",
         "captured_at": captured_at,
-        "notion_url": notion_result.get("url"),
-    })
+        "note": "pipeline running in background; result will be reported to Slack",
+    }), 202
 
 
 if __name__ == "__main__":
