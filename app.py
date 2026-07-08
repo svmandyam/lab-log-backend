@@ -40,6 +40,21 @@ NOTION_DATABASE_ID = os.environ["NOTION_DATABASE_ID"]
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "tagging_config.json")
 
+# Optional: Slack incoming-webhook URL for success/error pings.
+# If unset, notifications silently no-op -- the pipeline never depends on Slack.
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+
+
+def notify_slack(text):
+    """Fire-and-forget Slack ping. Deliberately swallows ALL errors --
+    a Slack outage or bad webhook must never break the actual logging."""
+    if not SLACK_WEBHOOK_URL:
+        return
+    try:
+        requests.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
+    except Exception:
+        pass
+
 
 def load_tagging_config():
     """Reload the config on every request -- cheap, and means a git pull/redeploy
@@ -251,7 +266,15 @@ def log_entry():
         tags["captured_at"] = captured_at
         notion_result = write_to_notion(tags, image_files=image_files or None)
     except Exception as e:
+        notify_slack(f":x: *Lab log FAILED* at {captured_at}\n```{str(e)[:1500]}```")
         return jsonify({"error": str(e)}), 500
+
+    notify_slack(
+        f":white_check_mark: *Lab log saved:* {tags['title']}\n"
+        f"Type: {', '.join(tags['type'])} | Status: {tags['status']}"
+        + (f" | :camera: {len(image_files)}" if image_files else "")
+        + (f"\n{notion_result.get('url')}" if notion_result.get("url") else "")
+    )
 
     return jsonify({
         "status": "ok",
