@@ -1,7 +1,6 @@
 {
   "_comment": "This file defines how voice-note transcripts get tagged before being written to Notion. Claude periodically reviews the actual Notion Log database and may propose edits here (e.g. new Equipment values that have started appearing) -- always sanity check a diff before it goes live, since Render redeploys automatically on push to main.",
-  "_last_reviewed": "2026-07-06",
-
+  "_last_reviewed": "2026-07-08",
   "type_options": [
     "Event",
     "Plan",
@@ -13,7 +12,6 @@
     "Reading/Link",
     "Tutorial"
   ],
-
   "equipment_options": [
     "Cryostat",
     "DAC",
@@ -28,7 +26,6 @@
     "LowPro",
     "Dil Fridge"
   ],
-
   "project_examples": [
     "Nickelate",
     "GSLAC",
@@ -42,8 +39,10 @@
     "2026 Roadmap",
     "General"
   ],
-
-  "status_options": ["Open", "Resolved", "Reference"],
-
-  "tagging_instructions": "You are tagging a lab notebook entry for a high-pressure NV-diamond sensing research group. Given a raw voice-transcribed note, output ONLY a JSON object (no prose, no markdown fences) with these fields:\n\n- \"title\": a short (under 10 words) descriptive title you generate\n- \"type\": array, choose one or more from exactly the type_options list provided\n- \"equipment\": array, choose zero or more from exactly the equipment_options list provided (leave empty if nothing clearly matches; do not invent new equipment names).\n  Special case for \"Diamond\": tag Diamond when the note is about creating or characterizing NV centers in diamond material itself -- nitrogen/ion implantation (implant, implanted, implanting), annealing the diamond, or an anneal/implant \"recipe\" (e.g. temperature/time schedule for NV formation). Do NOT tag Diamond just because the word \"bake\" or \"recipe\" appears -- those words are also used constantly for unrelated things in this lab, especially epoxy/stycast curing during DAC assembly (\"bake at 75C overnight\", \"stycast recipe\") and salt baking for moisture removal. Only tag Diamond when the baking/annealing/recipe is being applied to the diamond crystal itself as part of NV fabrication, not to glue, salt, or other DAC-assembly materials.\n  Special case for cryostat subtypes (\"2100\", \"800\", \"Janis\", \"LowPro\", \"Dil Fridge\"): these are specific cryostat systems. Tag the specific one ONLY when it is explicitly named in the transcript (e.g. \"the 2100 wouldn't cool down\", \"loading the Janis\", \"800 pump\"). When a specific system is named, tag BOTH \"Cryostat\" and that specific subtype together. If the note is about a cryostat but does not name a specific system, tag only \"Cryostat\" -- do not guess which system based on context, project, or habit (e.g. do not assume \"2100\" just because it's the most commonly used system).\n- \"project\": array, choose zero or more short project names if identifiable from context -- prefer reusing entries from the project_examples list if they fit, otherwise use \"General\". Note some projects are commonly referred to by a nickname rather than their canonical name: \"heat capacity\" (spoken) means the \"Calorimetry\" project; \"moire\" (spoken) means the \"MoTe2\" project. Use the canonical project_examples name in your output even if the transcript uses the nickname. Most entries will have exactly one project; only include more than one if the note genuinely spans multiple projects.\n- \"status\": choose exactly one from status_options, using best judgment from context (e.g. a described fix that worked = Resolved, an unanswered question or to-do = Open, a procedure/tutorial/reference note = Reference)\n- \"body\": the transcript, lightly cleaned up (fix obvious transcription errors/fragments) but preserve the original meaning and technical detail exactly. Do not summarize or shorten.\n\nRespond with raw JSON only."
+  "status_options": [
+    "Open",
+    "Resolved",
+    "Reference"
+  ],
+  "tagging_instructions": "You are tagging a lab notebook entry for a high-pressure NV-diamond sensing research group. Given a raw voice-transcribed note, output ONLY a JSON object (no prose, no markdown fences) with these fields:\n\n- \"title\": a short (under 10 words) descriptive title you generate\n- \"type\": array, choose one or more from exactly the type_options list provided. If the note diagnoses a problem and describes the fix that worked, include \"Solution\" -- it is the highest-value tag for future searching.\n- \"equipment\": array, choose zero or more from exactly the equipment_options list provided (leave empty if nothing clearly matches; do not invent new equipment names). Err on the side of INCLUSION: notes often chain multiple subjects, so tag EVERY piece of equipment the note substantively involves -- missing a relevant equipment tag is a worse error than adding a marginal one. (Example failure to avoid: a note about focusing an objective, galvo scanning, and mounting diamond anvils got only a cryostat tag, missing Confocal Setup, Optics, and DAC.)\n  Special case for \"Diamond\": tag Diamond when the note is about creating or characterizing NV centers in diamond material itself -- nitrogen/ion implantation (implant, implanted, implanting), annealing the diamond, or an anneal/implant \"recipe\" (e.g. temperature/time schedule for NV formation). Do NOT tag Diamond just because the word \"bake\" or \"recipe\" appears -- those words are also used constantly for unrelated things in this lab, especially epoxy/stycast curing during DAC assembly (\"bake at 75C overnight\", \"stycast recipe\") and salt baking for moisture removal. Only tag Diamond when the baking/annealing/recipe is being applied to the diamond crystal itself as part of NV fabrication, not to glue, salt, or other DAC-assembly materials.\n  Special case for cryostat subtypes (\"2100\", \"800\", \"Janis\", \"LowPro\", \"Dil Fridge\"): these are specific cryostat systems. Tag the specific one ONLY when it is explicitly named in the transcript (e.g. \"the 2100 wouldn't cool down\", \"loading the Janis\", \"800 pump\"). When a specific system is named, tag BOTH \"Cryostat\" and that specific subtype together. If the note is about a cryostat but does not name a specific system, tag only \"Cryostat\" -- do not guess which system based on context, project, or habit (e.g. do not assume \"2100\" just because it's the most commonly used system).\n- \"project\": array, choose zero or more short project names if identifiable from context -- prefer reusing entries from the project_examples list if they fit, otherwise use \"General\". Note some projects are commonly referred to by a nickname rather than their canonical name: \"heat capacity\" (spoken) means the \"Calorimetry\" project; \"moire\" (spoken) means the \"MoTe2\" project. Use the canonical project_examples name in your output even if the transcript uses the nickname. IMPORTANT: nickname mappings and project tags apply only when the note actually DISCUSSES that subject -- a passing reference is not enough. In particular, mentioning a meeting or event by name (\"after the moire meeting tomorrow\") does NOT make the note about that project; tag it only if the note engages with the subject itself. Notes often span multiple projects -- tag all that are substantively discussed, erring toward inclusion for subjects genuinely engaged with.\n- \"status\": choose exactly one from status_options, using best judgment from context (e.g. a described fix that worked = Resolved, an unanswered question or to-do = Open, a procedure/tutorial/reference note = Reference)\n- \"body\": the transcript, lightly cleaned up (fix obvious transcription errors/fragments) but preserve the original meaning and technical detail exactly. Do not summarize or shorten.\n\nRespond with raw JSON only."
 }
